@@ -1,0 +1,898 @@
+<?php
+/*
+ * @ Online decoder: https://EasyToYou.eu
+ * @ PHP 5.5
+ * @ Decoder version: 1.0.0.2
+ * @ Release: 24.09.2019
+ *
+ * @ ZendGuard Decoder PHP 5.5
+ */
+
+if (!defined("WHMCS")) {
+    exit("This file cannot be accessed directly");
+}
+include_once dirname(__FILE__) . "/lib/function.php";
+function MultiCSServer_MetaData()
+{
+    return array("DisplayName" => "MutliCS Server", "APIVersion" => "1.0", "RequiresServer" => true);
+}
+function MultiCSServer_ConfigOptions()
+{
+    $filename = dirname(__FILE__) . "/licensekey.php";
+    if (file_exists($filename)) {
+        require dirname(__FILE__) . "/licensekey.php";
+        $res = MultiCSServerCheckLicenseByKey($licenseKey);
+        if (!empty($licenseKey) && $res["status"] == "Active") {
+            $getlatestmoduleversion = file_get_contents("https://whmcssmarters.com/clients/multicsversion.php");
+            $moduledetails = Illuminate\Database\Capsule\Manager::table("tbladdonmodules")->where("module", "=", "MultiCSServerDashboard")->where("setting", "=", "version")->get();
+            if (empty($moduledetails)) {
+                return array("serverstatus" => array("FriendlyName" => "Module Status", "Description" => "<span style='color:red;'>Addon Module is not Activated Please Active it from Admin Area > Setup > Addon Modules > MultiCSServer Dashboard<span>", "Size" => 80));
+            }
+            $moduleversion = $moduledetails[0]->value;
+            if (basename($_SERVER["REQUEST_URI"]) == "configaddons.php") {
+                $serverdetails = Illuminate\Database\Capsule\Manager::table("tbladdons")->join("tblservergroupsrel", "tbladdons.server_group_id", "=", "tblservergroupsrel.groupid")->join("tblservers", "tblservergroupsrel.serverid", "=", "tblservers.id")->where("tbladdons.id", "=", $_REQUEST["id"])->select("tblservers.*")->get();
+            } else {
+                $serverdetails = Illuminate\Database\Capsule\Manager::table("tblproducts")->join("tblservergroupsrel", "tblproducts.servergroup", "=", "tblservergroupsrel.groupid")->join("tblservers", "tblservergroupsrel.serverid", "=", "tblservers.id")->where("tblproducts.id", "=", $_REQUEST["id"])->select("tblservers.*")->get();
+            }
+            if (isset($serverdetails) && !empty($serverdetails)) {
+                $con = MultiCSServerTestConnection($_REQUEST["id"]);
+                $result2 = mysqli_query($con, "SELECT * FROM member_groups");
+                $group = array();
+                $group[""] = "Select Group";
+                while ($membergrp = mysqli_fetch_assoc($result2)) {
+                    $group[$membergrp["id"]] = $membergrp["group_name"];
+                }
+                $regusers = mysqli_query($con, "SELECT * FROM users");
+                $grpsreg = array();
+                while ($reg_usersgrp = mysqli_fetch_assoc($regusers)) {
+                    $grpsreg[$reg_usersgrp["id"]] = $reg_usersgrp["username"];
+                }
+                $get_server = mysqli_query($con, "SELECT * FROM multics_master_servers");
+                $servers = array();
+                $servers[""] = "Select Server";
+                while ($serlist = mysqli_fetch_assoc($get_server)) {
+                    $servers[$serlist["id"]] = $serlist["domain"];
+                }
+                MultiCSServer_WHMCSReconnect();
+                $description = "<div class=\"col-sm-12\" ><div class=\"col-sm-8\">MultiCS Server Version v" . $moduleversion . " </div><div class=\"col-sm-4\" style=\"margin-top: -5px;margin-left: -25px;\n\"><div class=\"progress\" style=\"margin-bottom: 0px; margin-top:5px\"><div class=\"progress-bar progress-bar-success\" role=\"progressbar\" aria-valuenow=\"40\" aria-valuemin=\"0\" aria-valuemax=\"100\" style=\"width: 100%\">\n              Up to date!\n             </div></div></div></div>";
+                if ($moduleversion < $getlatestmoduleversion) {
+                    $description = "<div class=\"col-sm-12\" >MultiCS Server Version v" . $moduleversion . " \n        <div class=\"progress\" style=\"margin-bottom: 0px; margin-top:5px\">\n         <div class=\"progress-bar progress-bar-danger\" role=\"progressbar\" aria-valuenow=\"40\" aria-valuemin=\"0\" aria-valuemax=\"100\" style=\"width: 100%\">\n              New Version v" . $getlatestmoduleversion . " is <a style=\"color: #ffffff;text-decoration: underline;cursor:pointer\" target=\"_blank\" href=\"https://whmcssmarters.com/clients/\" >available to download</a>\n            </div>   \n        </div>\n    </div>";
+                }
+                return array("Module Version" => array("Description" => $description), "Product" => array("Type" => "dropdown", "Options" => array("streamline" => "Streaming Line", "reselleraccount" => "Reseller Account", "resellercredits" => "Reseller Credits", "superreselleraccount" => "Super-Reseller Account"), "Description" => "What type is this product?", "Size" => 80), "Fill Credits" => array("Type" => "text", "Size" => "20", "Description" => "How many credits this product gives? ( For \"Reseller Credits Products\", Leave empty for other product's type)"), "Trial Package" => array("Type" => "radio", "Options" => "Yes,No", "Default" => "No", "Description" => "Is this trial package?"), "Select MultiCS Server" => array("name" => "Server", "Type" => "dropdown", "Size" => 80, "Options" => $servers, "Description" => "[Select MultiCS Server]"), "Select SubServer" => array("name" => "SubServer", "Type" => "text", "Size" => 80, "Description" => "<br><a id=\"load-subserver\" onclick=\"subserver()\" href=\"javascript:;\" class=\"load-configuration\">Select SubServer to this product here</a>"), "Owner" => array("name" => "Line Owner", "Type" => "dropdown", "Size" => 80, "Options" => $grpsreg, "Description" => "Select the specific User in the MultiCS Server Panel who the streamlines belong to"), "Profiles" => array("Name" => "Profiles", "Type" => "text", "Size" => "20", "Description" => "<br><a id=\"load-storm-tariff\" onclick=\"tariffPlan()\" href=\"javascript:;\" class=\"load-configuration\">Assign Profiles to this product here</a>"), "Select Line Owner Reseller" => array("Type" => "dropdown", "Options" => $group, "Description" => "Choose one"), "Select Line Owner Super-Reseller" => array("Type" => "dropdown", "Options" => $group, "Description" => "Choose one"), "Start up Credits for Resellers" => array("Type" => "text", "Size" => "20", "Default" => "0", "Description" => "Enter Number of credits to the reseller/super-reseller account as soon as they get enrolled"), "" => array("Description" => "<center><a id=\"load-storm-tariff-custom-field\" href=\"javascript:;\" onclick=\"customfield()\" class=\"load-configuration-custom-field\"><span style=\"color:red\">Recommended</span> - Click Here to Create Required Custom Fields</a></center>", "Size" => 80));
+            }
+            return array("serverstatus" => array("FriendlyName" => "Server Status", "Description" => "<span style='color:red;'>Please select the Server Group and Click on Save Changes.<span>", "Size" => 80));
+        }
+        return array("licenseKeyStatus" => array("FriendlyName" => "License Key Status", "Description" => "<span style='color:red;'>Invalid or Expired license key.<span>", "Size" => 80));
+    }
+    return array("licenseKeyStatus" => array("FriendlyName" => "License Key Status", "Description" => "<span style='color:red;'>License File doesn't exists.<span>", "Size" => 80));
+}
+function MultiCSServerclean($string)
+{
+    $string = str_replace(" ", "-", $string);
+    return preg_replace("/[^A-Za-z0-9\\-]/", "", $string);
+}
+function MultiCSServer_CreateAccount(array $params)
+{
+    require dirname(__FILE__) . "/licensekey.php";
+    $res = MultiCSServerCheckLicenseByKey($licenseKey);
+    if (empty($licenseKey) || $res["status"] != "Active") {
+        return "Invalid or expired license key.";
+    }
+    $is_trial = $params["configoption4"] == "Yes" ? "1" : "0";
+    $multicsserver = $params["configoption5"];
+    list($subserver, $subservername) = explode("|", $params["configoption6"]);
+    $member_id = $params["configoption7"];
+    $profiles = $params["configoption8"];
+    $startupcredits = $params["configoption11"];
+    $member_groupid_reseller = $params["configoption9"];
+    $member_groupid_superreseller = $params["configoption10"];
+    $tblhostingdetails = Illuminate\Database\Capsule\Manager::table("tblhosting")->where("id", "=", $params["serviceid"])->get();
+    $nextduedate = $tblhostingdetails[0]->nextduedate;
+    $regdate = $tblhostingdetails[0]->regdate;
+    $serviceid = $tblhostingdetails[0]->id;
+    $multicsserviceConfig = Illuminate\Database\Capsule\Manager::table("mod_multicsserverConfig")->get();
+    $returndata = array();
+    if (isset($multicsserviceConfig) && !empty($multicsserviceConfig)) {
+        foreach ($multicsserviceConfig as $config) {
+            $returndata[$config->setting] = $config->value;
+        }
+    }
+    if ($params["configoption2"] == "streamline") {
+        $username = $params["username"];
+        $password = $params["password"];
+        if (isset($returndata["activationcode"]) && $returndata["activationcode"] == "on") {
+            if (empty($username) || $username != $password) {
+                $password = $username = MultiCSServer_generate_ran(8, false, "d");
+                $command = "EncryptPassword";
+                $postData = array("password2" => $password);
+                $results = localAPI($command, $postData, MultiCSServer_whmcsadmin());
+                if ($results["result"] == "success") {
+                    Illuminate\Database\Capsule\Manager::table("tblhosting")->where("id", $params["serviceid"])->update(array("password" => $results["password"], "username" => $username));
+                }
+            }
+        } else {
+            if (isset($params["customfields"]["Password"]) && !empty($params["customfields"]["Password"])) {
+                $password = $staticpassword = $params["customfields"]["Password"];
+            } else {
+                if ($returndata["passwordformat"] == "onlydigits") {
+                    $password = $staticpassword = MultiCSServer_generate_ran(10, false, "d");
+                } else {
+                    if ($returndata["passwordformat"] == "static" && isset($returndata["staticPassword"]) && !empty($returndata["staticPassword"])) {
+                        $password = $staticpassword = $returndata["staticPassword"];
+                    }
+                }
+            }
+            if (isset($staticpassword) && !empty($staticpassword)) {
+                $command = "EncryptPassword";
+                $postData = array("password2" => $staticpassword);
+                $results = localAPI($command, $postData, MultiCSServer_whmcsadmin());
+                if ($results["result"] == "success") {
+                    Illuminate\Database\Capsule\Manager::table("tblhosting")->where("id", $params["serviceid"])->update(array("password" => $results["password"]));
+                }
+            }
+            if (empty($username)) {
+                if (isset($params["customfields"]["Username"]) && !empty($params["customfields"]["Username"])) {
+                    $username = multicsserverclean($params["customfields"]["Username"]);
+                } else {
+                    if ($returndata["usernameformat"] == "onlydigits") {
+                        $username = MultiCSServer_generate_ran(10, false, "d");
+                    } else {
+                        $username = MultiCSServer_generate_ran();
+                    }
+                }
+                Illuminate\Database\Capsule\Manager::table("tblhosting")->where("id", $params["serviceid"])->update(array("username" => $username));
+            }
+        }
+        $params["username"] = $username;
+        $params["password"] = $password;
+        $con = MultiCSServerTestConnection($params["pid"]);
+        $result = mysqli_query($con, "SELECT username FROM `lines` WHERE username='" . $username . "'");
+        if (!$result) {
+            $radiussqlerror = mysqli_error($con);
+            MultiCSServer_WHMCSReconnect();
+            return "MultiCSServer Database Query Error: " . $radiussqlerror;
+        }
+        if (0 < mysqli_num_rows($result)) {
+            MultiCSServer_WHMCSReconnect();
+            return "This " . $username . " username is already taken";
+        }
+        $clientemail = MultiCSServercheckAffexists($params["clientsdetails"]["userid"]);
+        if (!empty($clientemail)) {
+            $result = mysqli_query($con, "SELECT id FROM users WHERE email='" . $clientemail . "'");
+            if (!$result) {
+                $radiussqlerror = mysqli_error($con);
+                MultiCSServer_WHMCSReconnect();
+                logModuleCall("MultiCSServer", "Check Reseller Exists", "Email Address : " . $clientemail, "MultiCSServer Database Query Error: " . $radiussqlerror, "", "");
+                return "MultiCSServer Database Query Error: " . $radiussqlerror;
+            }
+            if (0 < mysqli_num_rows($result)) {
+                $resellerdata = mysqli_fetch_assoc($result);
+                $member_id = $resellerdata["id"];
+            }
+        }
+        $query = "INSERT INTO `lines` (member_id , username , password , server_id , date_start , profiles , test_line ,blocked , enable , notes , user_paid  , line_options , monitor_exclude  , allow_ch_emu , reshare , online ,multics_id,notified_expire) \n                             VALUES ('" . $member_id . "' , '" . $username . "' , '" . $password . "', '" . $subserver . "' ,'" . time() . "', '" . $profiles . "' ,'" . $is_trial . "',0,1, '" . $returndata["common_identifier"] . $serviceid . "', 0 , '" . serialize(array()) . "' ,0,1,0,0,0,0)";
+        $result = mysqli_query($con, $query);
+        if (!$result) {
+            $radiussqlerror = mysqli_error($con);
+            MultiCSServer_WHMCSReconnect();
+            return "MultiCSServer Database Query Error: " . $radiussqlerror;
+        }
+        logModuleCall("MultiCSServer", "MultiCSServer_CreateAccount", "Account Created: " . $username, "success");
+        return "success";
+    }
+    if ($params["configoption2"] == "resellercredits") {
+        MultiCSServerResellerAddCredit($params, "simple");
+    } else {
+        if ($params["configoption2"] == "reselleraccount") {
+            $username = !empty($params["clientsdetails"]["firstname"]) || !empty($params["clientsdetails"]["lastname"]) ? $params["clientsdetails"]["firstname"] . $params["clientsdetails"]["lastname"] : (!empty($params["username"]) ? $params["username"] : MultiCSServer_generate_ran());
+            $password = !empty($params["password"]) ? $params["password"] : MultiCSServer_generate_ran();
+            $command = "EncryptPassword";
+            $postData = array("password2" => $password);
+            $results = localAPI($command, $postData, MultiCSServer_whmcsadmin());
+            if ($results["result"] == "success") {
+                Illuminate\Database\Capsule\Manager::table("tblhosting")->where("id", $params["serviceid"])->update(array("username" => $username, "password" => $results["password"]));
+            }
+            $con = MultiCSServerTestConnection($params["pid"]);
+            $email = $params["clientsdetails"]["email"];
+            $result = mysqli_query($con, "SELECT username FROM users WHERE email='" . $email . "'");
+            if (!$result) {
+                $radiussqlerror = mysqli_error($con);
+                MultiCSServer_WHMCSReconnect();
+                logModuleCall("MultiCSServer", "Check Reseller Exists", "Email Address : " . $email, "MultiCSServer Database Query Error: " . $radiussqlerror, "", "");
+                return "MultiCSServer Database Query Error: " . $radiussqlerror;
+            }
+            if (0 < mysqli_num_rows($result)) {
+                MultiCSServer_WHMCSReconnect();
+                logModuleCall("MultiCSServer", "Check Reseller Exists", "Email Address : " . $email, "This " . $email . " email address is already taken", "", "");
+                return "This " . $email . " email address is already taken";
+            }
+            if (empty($params["configoption9"])) {
+                return "Please Select MultiCS Server Reseller Group in Product/Service Module Setting!";
+            }
+            $reseller = "INSERT INTO `users`(`username`, `password`, `email`, `date_registered`, `balance`, `member_group_id`, `verified`, `total_test_lines`, `lang_id`) VALUES ('" . $username . "','" . md5($password) . "','" . $email . "','" . time() . "',0,'" . $member_groupid_reseller . "',1,0,1)";
+            $resellersresult = mysqli_query($con, $reseller);
+            if (!$resellersresult) {
+                $radiussqlerror = mysqli_error($con);
+                MultiCSServer_WHMCSReconnect();
+                logModuleCall("MultiCSServer", "Error in Reseller creation", "Email Address : " . $email, "MultiCSServer Database Query Error: " . $radiussqlerror, "", "");
+                return "MultiCSServer Database Query Error: " . $radiussqlerror;
+            }
+            MultiCSServer_WHMCSReconnect();
+            $command = "AffiliateActivate";
+            $postData = array("userid" => $params["clientsdetails"]["userid"]);
+            $adminUsername = MultiCSServer_whmcsadmin();
+            $resultaff = localAPI($command, $postData, $adminUsername);
+            if ($resultaff["result"] == "success") {
+                $GetClientGroups = "GetClientGroups";
+                $clientGroups = localAPI($GetClientGroups, array(), $adminUsername);
+                if ($clientGroups["result"] == "success") {
+                    foreach ($clientGroups["groups"]["group"] as $group) {
+                        if ($group["groupname"] == "Reseller") {
+                            $command = "UpdateClient";
+                            $postData = array("clientid" => $params["clientsdetails"]["userid"], "groupid" => $group["id"]);
+                            $results = localAPI($command, $postData, $adminUsername);
+                            if ($results["result"] != "success") {
+                                logModuleCall("MultiCSServer", "Error in Creating Reseller(GetClientGroups)", "Email Address : " . $email, $results, "", "");
+                            }
+                        }
+                    }
+                    if (isset($startupcredits) && !empty($startupcredits)) {
+                        MultiCSServerResellerAddCredit($params, "reseller");
+                    }
+                } else {
+                    logModuleCall("MultiCSServer", "Error in Creating Reseller(GetClientGroups)", "Email Address : " . $email, $clientGroups, "", "");
+                }
+                logModuleCall("MultiCSServer", "Create Reseller", "Email Address : " . $email, "Reseller Created Successfully", "", "");
+            } else {
+                logModuleCall("MultiCSServer", "Error in Creating Reseller", "Email Address : " . $email, $resultaff, "", "");
+            }
+            return "success";
+        } else {
+            if ($params["configoption2"] == "superreselleraccount") {
+                $username = !empty($params["clientsdetails"]["firstname"]) || !empty($params["clientsdetails"]["lastname"]) ? $params["clientsdetails"]["firstname"] . $params["clientsdetails"]["lastname"] : (!empty($params["username"]) ? $params["username"] : MultiCSServer_generate_ran());
+                $password = !empty($params["password"]) ? $params["password"] : MultiCSServer_generate_ran();
+                $command = "EncryptPassword";
+                $postData = array("password2" => $password);
+                $results = localAPI($command, $postData, MultiCSServer_whmcsadmin());
+                if ($results["result"] == "success") {
+                    Illuminate\Database\Capsule\Manager::table("tblhosting")->where("id", $params["serviceid"])->update(array("username" => $username, "password" => $results["password"]));
+                }
+                $con = MultiCSServerTestConnection($params["pid"]);
+                $email = $params["clientsdetails"]["email"];
+                $result = mysqli_query($con, "SELECT username FROM users WHERE email='" . $email . "'");
+                if (!$result) {
+                    $radiussqlerror = mysqli_error($con);
+                    MultiCSServer_WHMCSReconnect();
+                    logModuleCall("MultiCSServer", "Check Reseller Exists", "Email Address : " . $email, "MultiCSServer Database Query Error: " . $radiussqlerror, "", "");
+                    return "MultiCSServer Database Query Error: " . $radiussqlerror;
+                }
+                if (0 < mysqli_num_rows($result)) {
+                    MultiCSServer_WHMCSReconnect();
+                    logModuleCall("MultiCSServer", "Check Reseller Exists", "Email Address : " . $email, "This " . $email . " email address is already taken", "", "");
+                    return "This " . $email . " email address is already taken";
+                }
+                if (empty($params["configoption10"])) {
+                    return "Please Select MultiCS Server Super Reseller Group in Product/Service Module Setting!";
+                }
+                $superreseller = "INSERT INTO `users`(`username`, `password`, `email`, `date_registered`, `balance`, `member_group_id`, `verified`, `total_test_lines`, `lang_id`) VALUES ('" . $username . "','" . md5($password) . "','" . $email . "','" . time() . "',0,'" . $member_groupid_superreseller . "',1,0,1)";
+                $superresellersresult = mysqli_query($con, $superreseller);
+                if (!$superresellersresult) {
+                    $radiussqlerror = mysqli_error($con);
+                    MultiCSServer_WHMCSReconnect();
+                    logModuleCall("MultiCSServer", "Error in Reseller creation", "Email Address : " . $email, "MultiCSServer Database Query Error: " . $radiussqlerror, "", "");
+                    return "MultiCSServer Database Query Error: " . $radiussqlerror;
+                }
+                MultiCSServer_WHMCSReconnect();
+                $command = "AffiliateActivate";
+                $postData = array("userid" => $params["clientsdetails"]["userid"]);
+                $adminUsername = MultiCSServer_whmcsadmin();
+                $resultaff = localAPI($command, $postData, $adminUsername);
+                if ($resultaff["result"] == "success") {
+                    $GetClientGroups = "GetClientGroups";
+                    $clientGroups = localAPI($GetClientGroups, array(), $adminUsername);
+                    if ($clientGroups["result"] == "success") {
+                        foreach ($clientGroups["groups"]["group"] as $group) {
+                            if ($group["groupname"] == "Super-Reseller") {
+                                $command = "UpdateClient";
+                                $postData = array("clientid" => $params["clientsdetails"]["userid"], "groupid" => $group["id"]);
+                                $results = localAPI($command, $postData, $adminUsername);
+                                if ($results["result"] != "success") {
+                                    logModuleCall("MultiCSServer", "Error in Creating Super Reseller(GetClientGroups)", "Email Address : " . $email, $results, "", "");
+                                }
+                            }
+                        }
+                        if (isset($startupcredits) && !empty($startupcredits)) {
+                            MultiCSServerResellerAddCredit($params, "reseller");
+                        }
+                    } else {
+                        logModuleCall("MultiCSServer", "Error in Creating Super Reseller(GetClientGroups)", "Email Address : " . $email, $clientGroups, "", "");
+                    }
+                    logModuleCall("MultiCSServer", "Create Reseller", "Email Address : " . $email, "Reseller Created Successfully", "", "");
+                } else {
+                    logModuleCall("MultiCSServer", "Error in Creating Reseller", "Email Address : " . $email, $resultaff, "", "");
+                }
+                return "success";
+            }
+        }
+    }
+    return "success";
+}
+function MultiCSServer_SuspendAccount(array $params)
+{
+    require dirname(__FILE__) . "/licensekey.php";
+    $res = MultiCSServerCheckLicenseByKey($licenseKey);
+    if (empty($licenseKey) || $res["status"] != "Active") {
+        return "Invalid or expired license key.";
+    }
+    try {
+        $con = MultiCSServerTestConnection($params["pid"]);
+        $serviceid = $params["serviceid"];
+        $multicsserviceConfig = Illuminate\Database\Capsule\Manager::table("mod_multicsserverConfig")->get();
+        $returndata = array();
+        if (isset($multicsserviceConfig) && !empty($multicsserviceConfig)) {
+            foreach ($multicsserviceConfig as $config) {
+                $returndata[$config->setting] = $config->value;
+            }
+        }
+        $reseller_notes = $returndata["common_identifier"] . $serviceid;
+        if ($params["configoption2"] == "streamline") {
+            $username = $params["username"];
+            $result = mysqli_query($con, "SELECT * FROM `lines` WHERE username='" . $username . "' AND notes='" . $reseller_notes . "'");
+            if (mysqli_num_rows($result) != 0) {
+                $result = mysqli_query($con, "UPDATE `lines` SET blocked='1' WHERE username='" . $username . "' AND blocked='0' AND notes ='" . $reseller_notes . "'");
+                if (!$result) {
+                    MultiCSServer_WHMCSReconnect();
+                    return "MultiCSServer Database Query Error: " . mysql_error();
+                }
+                MultiCSServer_WHMCSReconnect();
+                logModuleCall("MultiCSServer", "MultiCSServer_SuspendAccount", "Account Suspended: " . $username, "success");
+                return "success";
+            }
+            MultiCSServer_WHMCSReconnect();
+            return "User Not Found!!";
+        }
+        if ($params["configoption2"] == "resellercredits") {
+            return "success";
+        }
+        if ($params["configoption2"] == "reselleraccount") {
+            return "success";
+        }
+        if ($params["configoption2"] == "superreselleraccount") {
+            return "success";
+        }
+    } catch (Exception $e) {
+        logModuleCall("MultiCSServer", "MultiCSServer_SuspendAccount", $params, $e->getMessage(), $e->getTraceAsString());
+        return $e->getMessage();
+    }
+    return "success";
+}
+function MultiCSServer_UnsuspendAccount(array $params)
+{
+    require dirname(__FILE__) . "/licensekey.php";
+    $res = MultiCSServerCheckLicenseByKey($licenseKey);
+    if (empty($licenseKey) || $res["status"] != "Active") {
+        return "Invalid or expired license key.";
+    }
+    try {
+        $con = MultiCSServerTestConnection($params["pid"]);
+        $serviceid = $params["serviceid"];
+        $multicsserviceConfig = Illuminate\Database\Capsule\Manager::table("mod_multicsserverConfig")->get();
+        $returndata = array();
+        if (isset($multicsserviceConfig) && !empty($multicsserviceConfig)) {
+            foreach ($multicsserviceConfig as $config) {
+                $returndata[$config->setting] = $config->value;
+            }
+        }
+        $reseller_notes = $returndata["common_identifier"] . $serviceid;
+        if ($params["configoption2"] == "streamline") {
+            $username = $params["username"];
+            $result = mysqli_query($con, "SELECT * FROM `lines` WHERE username='" . $username . "' AND notes='" . $reseller_notes . "'");
+            if (mysqli_num_rows($result) != 0) {
+                $result = mysqli_query($con, "UPDATE `lines` SET blocked='0' WHERE username='" . $username . "' AND blocked='1' AND notes ='" . $reseller_notes . "'");
+                if (!$result) {
+                    MultiCSServer_WHMCSReconnect();
+                    return "MultiCSServer Database Query Error: " . mysql_error();
+                }
+                MultiCSServer_WHMCSReconnect();
+                logModuleCall("MultiCSServer", "MultiCSServer_UnsuspendAccount", "Account UnSuspended: " . $username, "success");
+                return "success";
+            }
+            MultiCSServer_WHMCSReconnect();
+            return "User Not Found!!";
+        }
+        if ($params["configoption2"] == "resellercredits") {
+            return "success";
+        }
+        if ($params["configoption2"] == "reselleraccount") {
+            return "success";
+        }
+        if ($params["configoption2"] == "superreselleraccount") {
+            return "success";
+        }
+    } catch (Exception $e) {
+        logModuleCall("MultiCSServer", "MultiCSServer_UnsuspendAccount", $params, $e->getMessage(), $e->getTraceAsString());
+        return $e->getMessage();
+    }
+    return "success";
+}
+function MultiCSServerResellerAddCredit($params, $creditsto)
+{
+    if ($creditsto == "simple") {
+        $desc = "Top Up Coupon of Amount " . $params["configoption3"];
+        $amount = $params["configoption3"];
+    } else {
+        $desc = "StartUp Credits " . $params["configoption11"];
+        $amount = $params["configoption11"];
+    }
+    $email = $params["clientsdetails"]["email"];
+    $multicsserviceConfig = Illuminate\Database\Capsule\Manager::table("mod_multicsserverConfig")->get();
+    $returndata = array();
+    if (isset($multicsserviceConfig) && !empty($multicsserviceConfig)) {
+        foreach ($multicsserviceConfig as $config) {
+            $returndata[$config->setting] = $config->value;
+        }
+    }
+    if ($returndata["syncredit"] == "on") {
+        $reselleremail = $params["customfields"]["Reseller Email"];
+        if (isset($reselleremail) && !empty($reselleremail)) {
+            $email = $reselleremail;
+        }
+    }
+    $con = MultiCSServerTestConnection($params["pid"]);
+    $result = mysqli_query($con, "SELECT username,balance FROM users WHERE email='" . $email . "'");
+    if (!$result) {
+        $radiussqlerror = mysqli_error($con);
+        MultiCSServer_WHMCSReconnect();
+        logModuleCall("MultiCSServer", "Check Reseller Exists", "Email Address : " . $email, "MultiCSServer Database Query Error: " . $radiussqlerror, "", "");
+        return "MultiCSServer Database Query Error: " . $radiussqlerror;
+    }
+    if (0 < mysqli_num_rows($result)) {
+        if ($returndata["syncredit"] == "on") {
+            $resellerdata = mysqli_fetch_assoc($result);
+            $totalamount = $amount + $resellerdata["balance"];
+            $update = mysqli_query($con, "UPDATE users SET balance ='" . $totalamount . "' WHERE email='" . $email . "'");
+            if (!$update) {
+                $radiussqlerror = mysqli_error($con);
+                MultiCSServer_WHMCSReconnect();
+                logModuleCall("MultiCSServer", "Error Add Credits", "Email Address : " . $email, "MultiCSServer Database Query Error: " . $radiussqlerror, "", "");
+                return "MultiCSServer Database Query Error: " . $radiussqlerror;
+            }
+            $desc .= " and Reseller Xtream Credits " . $resellerdata["balance"];
+        }
+        $reselleremail = $params["customfields"]["Reseller Email"];
+        if (isset($reselleremail) && !empty($reselleremail)) {
+            return "success";
+        }
+        MultiCSServer_WHMCSReconnect();
+        $AddCredit = "AddCredit";
+        $postData = array("clientid" => $params["clientsdetails"]["userid"], "description" => $desc, "amount" => $amount);
+        $resultsCredit = localAPI($AddCredit, $postData, MultiCSServer_whmcsadmin());
+        if ($resultsCredit["result"] == "success") {
+            logModuleCall("MultiCSServer", "Add Credit", "Email Address : " . $email, $resultsCredit, "", "");
+        } else {
+            logModuleCall("MultiCSServer", "Add Credit", "Email Address : " . $email, $resultsCredit, "", "");
+        }
+    } else {
+        logModuleCall("MultiCSServer", "Error Add Credit", "Email Address : " . $email, "Reseller didn't exists!", "", "");
+    }
+    return "success";
+}
+function MultiCSServer_TerminateAccount(array $params)
+{
+    require dirname(__FILE__) . "/licensekey.php";
+    $res = MultiCSServerCheckLicenseByKey($licenseKey);
+    if (empty($licenseKey) || $res["status"] != "Active") {
+        return "Invalid or expired license key.";
+    }
+    try {
+        $con = MultiCSServerTestConnection($params["pid"]);
+        $username = $params["username"];
+        $serviceid = $params["serviceid"];
+        $multicsserviceConfig = Illuminate\Database\Capsule\Manager::table("mod_multicsserverConfig")->get();
+        $returndata = array();
+        if (isset($multicsserviceConfig) && !empty($multicsserviceConfig)) {
+            foreach ($multicsserviceConfig as $config) {
+                $returndata[$config->setting] = $config->value;
+            }
+        }
+        $reseller_notes = $returndata["common_identifier"] . $serviceid;
+        if ($params["configoption2"] == "streamline") {
+            $result = mysqli_query($con, "SELECT * FROM `lines` WHERE username='" . $username . "' AND notes='" . $reseller_notes . "'");
+            if (mysqli_num_rows($result) != 0) {
+                $result = mysqli_query($con, "DELETE FROM `lines` WHERE username='" . $username . "' AND notes='" . $reseller_notes . "'");
+                if (!$result) {
+                    MultiCSServer_WHMCSReconnect();
+                    return "MultiCSServer Database Query Error: " . mysqli_error($con);
+                }
+                MultiCSServer_WHMCSReconnect();
+                logModuleCall("MultiCSServer", "MultiCSServer_TerminateAccount", "Account Deleted: " . $username, "success");
+                return "success";
+            }
+            MultiCSServer_WHMCSReconnect();
+            return "User Not Found!!";
+        }
+        if ($params["configoption2"] == "resellercredits") {
+            return "success";
+        }
+        if ($params["configoption2"] == "reselleraccount") {
+            $email = $params["clientsdetails"]["email"];
+            $result = mysqli_query($con, "SELECT username FROM users WHERE email='" . $email . "'");
+            if (!$result) {
+                $radiussqlerror = mysqli_error($con);
+                MultiCSServer_WHMCSReconnect();
+                return "MultiCSServer Database Query Error: " . $radiussqlerror;
+            }
+            if (0 < mysqli_num_rows($result)) {
+                $delete = mysqli_query($con, "DELETE FROM users WHERE email='" . $email . "'");
+                if (!$delete) {
+                    $radiussqlerror = mysqli_error($con);
+                    MultiCSServer_WHMCSReconnect();
+                    return "MultiCSServer Database Query Error: " . $radiussqlerror;
+                }
+                logModuleCall("MultiCSServer", "Reseller Account Deleted", "Email Address : " . $email, "This " . $email . " email address doesn't exists", "", "");
+                return "success";
+            }
+            logModuleCall("MultiCSServer", "Check Reseller Exists", "Email Address : " . $email, "This " . $email . " email address doesn't exists", "", "");
+            return "This " . $email . " email address doesn't exists";
+        }
+        if ($params["configoption2"] == "superreselleraccount") {
+            $email = $params["clientsdetails"]["email"];
+            $result = mysqli_query($con, "SELECT username FROM users WHERE email='" . $email . "'");
+            if (!$result) {
+                $radiussqlerror = mysqli_error($con);
+                MultiCSServer_WHMCSReconnect();
+                return "MultiCSServer Database Query Error: " . $radiussqlerror;
+            }
+            if (0 < mysqli_num_rows($result)) {
+                $delete = mysqli_query($con, "DELETE FROM users WHERE email='" . $email . "'");
+                if (!$delete) {
+                    $radiussqlerror = mysqli_error($con);
+                    MultiCSServer_WHMCSReconnect();
+                    return "MultiCSServer Database Query Error: " . $radiussqlerror;
+                }
+                logModuleCall("MultiCSServer", "Super-Reseller Account Deleted", "Email Address : " . $email, "This " . $email . " email address doesn't exists", "", "");
+                return "success";
+            }
+            logModuleCall("MultiCSServer", "Check Super-Reseller Exists", "Email Address : " . $email, "This " . $email . " email address doesn't exists", "", "");
+            return "This " . $email . " email address doesn't exists";
+        }
+    } catch (Exception $e) {
+        logModuleCall("MultiCSServer", "MultiCSServer_TerminateAccount", $params, $e->getMessage(), $e->getTraceAsString());
+        return $e->getMessage();
+    }
+    return "success";
+}
+function MultiCSServer_ChangePackage(array $params)
+{
+    require dirname(__FILE__) . "/licensekey.php";
+    $res = MultiCSServerCheckLicenseByKey($licenseKey);
+    if (empty($licenseKey) || $res["status"] != "Active") {
+        return "Invalid or expired license key.";
+    }
+    $con = MultiCSServerTestConnection($params["pid"]);
+    $serviceid = $params["serviceid"];
+    $multicsserviceConfig = Illuminate\Database\Capsule\Manager::table("mod_multicsserverConfig")->get();
+    $returndata = array();
+    if (isset($multicsserviceConfig) && !empty($multicsserviceConfig)) {
+        foreach ($multicsserviceConfig as $config) {
+            $returndata[$config->setting] = $config->value;
+        }
+    }
+    $reseller_notes = $returndata["common_identifier"] . $serviceid;
+    if ($params["configoption2"] == "streamline") {
+        $is_trial = $params["configoption4"] == "Yes" ? "1" : "0";
+        list($subserver, $subservername) = explode("|", $params["configoption6"]);
+        $profiles = $params["configoption8"];
+        $username = $params["username"];
+        $result = mysqli_query($con, "SELECT * FROM `lines` WHERE username='" . $username . "' AND notes='" . $reseller_notes . "'");
+        if (mysqli_num_rows($result) != 0) {
+            $result = mysqli_query($con, "UPDATE `lines` SET server_id='" . $subserver . "',profiles='" . $profiles . "',test_line='" . $is_trial . "' WHERE username='" . $username . "' AND blocked='0' AND notes ='" . $reseller_notes . "'");
+            if (!$result) {
+                MultiCSServer_WHMCSReconnect();
+                return "MultiCSServer Database Query Error: " . mysql_error();
+            }
+            MultiCSServer_WHMCSReconnect();
+            logModuleCall("MultiCSServer", "MultiCSServer_ChangePackage", "Account Suspended: " . $username, "success");
+            return "success";
+        }
+        MultiCSServer_WHMCSReconnect();
+        return "User Not Found!!";
+    }
+    return "success";
+}
+function MultiCSServer_TestConnection(array $params)
+{
+    try {
+        $sqlusername = $params["serverusername"];
+        $sqlpassword = $params["serverpassword"];
+        $sqldbname = $params["serveraccesshash"];
+        list($sqlhost, $sqlport) = explode(":", $params["serverip"]);
+        if (isset($sqlport) && !empty($sqlport)) {
+            $con = mysqli_connect($sqlhost, $sqlusername, $sqlpassword, $sqldbname, $sqlport);
+        } else {
+            $con = mysqli_connect($sqlhost, $sqlusername, $sqlpassword, $sqldbname);
+        }
+        if (mysqli_connect_errno()) {
+            $success = false;
+            $errorMsg = "Failed to connect to MySQL: " . mysqli_connect_error();
+        } else {
+            $success = true;
+            $errorMsg = "";
+        }
+    } catch (Exception $e) {
+        logModuleCall("MultiCSServer", "MultiCSServer_TestConnection", $params, $e->getMessage(), $e->getTraceAsString());
+        $success = false;
+        $errorMsg = $e->getMessage();
+    }
+    MultiCSServer_WHMCSReconnect();
+    return array("success" => $success, "error" => $errorMsg);
+}
+function MultiCSServer_ClientArea(array $params)
+{
+    require dirname(__FILE__) . "/licensekey.php";
+    $res = MultiCSServerCheckLicenseByKey($licenseKey);
+    if (empty($licenseKey) || $res["status"] != "Active") {
+        return "Invalid or expired license key.";
+    }
+    $response = "";
+    $multicsserviceConfig = Illuminate\Database\Capsule\Manager::table("mod_multicsserverConfig")->get();
+    $returndata = array();
+    if (isset($multicsserviceConfig) && !empty($multicsserviceConfig)) {
+        foreach ($multicsserviceConfig as $config) {
+            $returndata[$config->setting] = $config->value;
+        }
+    }
+    $con = MultiCSServerTestConnection($params["pid"]);
+    $reseller_notes = $returndata["common_identifier"] . $params["serviceid"];
+    if ($params["configoption2"] == "streamline") {
+        $iptvusername = $params["username"];
+        $con = MultiCSServerTestConnection($params["pid"]);
+        $usersresult = mysqli_query($con, "SELECT id FROM `lines` WHERE username='" . $iptvusername . "' AND notes='" . $reseller_notes . "'");
+        if (!$usersresult) {
+            $radiussqlerror = mysqli_error($con);
+            MultiCSServer_WHMCSReconnect();
+            return "MultiCSServer Database Query Error: " . $radiussqlerror;
+        }
+        if (0 < mysqli_num_rows($usersresult)) {
+            $templateFile = "templates/overview.tpl";
+        } else {
+            $error = "User Not found!";
+            $templateFile = "templates/error.tpl";
+        }
+        $variabledata = array("iptv_username" => $params["username"], "iptv_password" => $params["password"], "response" => $response, "message" => isset($result) && !empty($result) ? $result : $response, "lang" => $returndata, "usefulErrorHelper" => isset($error) && !empty($error) ? $error : "", "status" => $params["status"]);
+    }
+    try {
+        MultiCSServer_WHMCSReconnect();
+        return array("tabOverviewReplacementTemplate" => $templateFile, "templateVariables" => $variabledata);
+    } catch (Exception $e) {
+        logModuleCall("MultiCSServer", "MultiCSServer_ClientArea", $params, $e->getMessage(), $e->getTraceAsString());
+        return array("tabOverviewReplacementTemplate" => "error.tpl", "templateVariables" => array("usefulErrorHelper" => $e->getMessage()));
+    }
+}
+function MultiCSServer_generate_ran($length = 9, $add_dashes = false, $available_sets = "lud")
+{
+    $sets = array();
+    if (strpos($available_sets, "l") !== false) {
+        $sets[] = "abcdefghjkmnpqrstuvwxyz";
+    }
+    if (strpos($available_sets, "u") !== false) {
+        $sets[] = "ABCDEFGHJKMNPQRSTUVWXYZ";
+    }
+    if (strpos($available_sets, "d") !== false) {
+        $sets[] = "0123456789";
+    }
+    $all = "";
+    $password = "";
+    foreach ($sets as $set) {
+        $password .= $set[array_rand(str_split($set))];
+        $all .= $set;
+    }
+    $all = str_split($all);
+    for ($i = 0; $i < $length - count($sets); $i++) {
+        $password .= $all[array_rand($all)];
+    }
+    $password = str_shuffle($password);
+    if (!$add_dashes) {
+        return $password;
+    }
+    $dash_len = floor(sqrt($length));
+    $dash_str = "";
+    while ($dash_len < strlen($password)) {
+        $dash_str .= substr($password, 0, $dash_len) . "-";
+        $password = substr($password, $dash_len);
+    }
+    $dash_str .= $password;
+    return $dash_str;
+}
+function MultiCSServer_WHMCSReconnect()
+{
+    require ROOTDIR . "/configuration.php";
+    $whmcsmysql = mysqli_connect($db_host, $db_username, $db_password, $db_name);
+}
+function MultiCSServer_whmcsadmin()
+{
+    $whmcsadmin = Illuminate\Database\Capsule\Manager::table("tbladmins")->where("id", "1")->get();
+    return $whmcsadmin[0]->username;
+}
+function MultiCSServercheckAffexists($clientid)
+{
+    $data = Illuminate\Database\Capsule\Manager::table("mod_multicsserverAffs_clients")->where("clientid", $clientid)->get();
+    if (isset($data) && !empty($data)) {
+        $clientemail = Illuminate\Database\Capsule\Manager::table("tblclients")->join("tblaffiliates", "tblaffiliates.clientid", "=", "tblclients.id")->where("tblaffiliates.id", "=", $data[0]->affiliatesid)->select("tblclients.email")->get();
+        if (isset($clientemail) && !empty($clientemail)) {
+            return $clientemail[0]->email;
+        }
+        return "";
+    }
+    return "";
+}
+function MultiCSServerTestConnection($productId)
+{
+    if (basename($_SERVER["REQUEST_URI"]) == "configaddons.php") {
+        $servers = Illuminate\Database\Capsule\Manager::table("tbladdons")->join("tblservergroupsrel", "tbladdons.server_group_id", "=", "tblservergroupsrel.groupid")->join("tblservers", "tblservergroupsrel.serverid", "=", "tblservers.id")->where("tbladdons.id", "=", $productId)->select("tblservers.*")->get();
+    } else {
+        $servers = Illuminate\Database\Capsule\Manager::table("tblproducts")->join("tblservergroupsrel", "tblproducts.servergroup", "=", "tblservergroupsrel.groupid")->join("tblservers", "tblservergroupsrel.serverid", "=", "tblservers.id")->where("tblproducts.id", "=", $productId)->select("tblservers.*")->get();
+    }
+    if (isset($servers) && !empty($servers)) {
+        foreach ($servers as $server) {
+            $sqlusername = $server->username;
+            $sqlpassword = decrypt($server->password);
+            $sqldbname = $server->accesshash;
+            list($sqlhost, $sqlport) = explode(":", $server->ipaddress);
+            if (isset($sqlport) && !empty($sqlport)) {
+                $con = mysqli_connect($sqlhost, $sqlusername, $sqlpassword, $sqldbname, $sqlport);
+            } else {
+                $con = mysqli_connect($sqlhost, $sqlusername, $sqlpassword, $sqldbname);
+            }
+            if (!$con) {
+                multicsserver_whmcsreconnect();
+                logModuleCall("MultiCSServer", "Check Connection", "Connection", "Failed to connect to MySQL: " . mysqli_connect_error(), "", "");
+                return true;
+            }
+        }
+    }
+    return $con;
+}
+function MultiCSServerCheckLicenseByKey($licenseKey)
+{
+    if (empty($licenseKey)) {
+        return false;
+    }
+    return MultiCSServerCheckLicense($licenseKey);
+}
+function MultiCSServerCheckLicense($licensekey, $localkey = "")
+{
+    $whmcsurl = "https://www.whmcssmarters.com/clients/";
+    $licensing_secret_key = "cloudtvmedia";
+    $check_token = time() . md5(mt_rand(1000000000, 10000000000.0) . $licensekey);
+    $checkdate = date("Ymd");
+    $usersip = isset($_SERVER["SERVER_ADDR"]) ? $_SERVER["SERVER_ADDR"] : $_SERVER["LOCAL_ADDR"];
+    $localkeydays = 10;
+    $allowcheckfaildays = 7;
+    $localkeyvalid = false;
+    if ($localkey) {
+        $localkey = str_replace("\n", "", $localkey);
+        $localdata = substr($localkey, 0, strlen($localkey) - 32);
+        $md5hash = substr($localkey, strlen($localkey) - 32);
+        if ($md5hash == md5($localdata . $licensing_secret_key)) {
+            $localdata = strrev($localdata);
+            $md5hash = substr($localdata, 0, 32);
+            $localdata = substr($localdata, 32);
+            $localdata = base64_decode($localdata);
+            $localkeyresults = unserialize($localdata);
+            $originalcheckdate = $localkeyresults["checkdate"];
+            if ($md5hash == md5($originalcheckdate . $licensing_secret_key)) {
+                $localexpiry = date("Ymd", mktime(0, 0, 0, date("m"), date("d") - $localkeydays, date("Y")));
+                if ($localexpiry < $originalcheckdate) {
+                    $localkeyvalid = true;
+                    $results = $localkeyresults;
+                    $validdomains = explode(",", $results["validdomain"]);
+                    if (!in_array($_SERVER["SERVER_NAME"], $validdomains)) {
+                        $localkeyvalid = false;
+                        $localkeyresults["status"] = "Invalid";
+                        $results = array();
+                    }
+                    $validips = explode(",", $results["validip"]);
+                    if (!in_array($usersip, $validips)) {
+                        $localkeyvalid = false;
+                        $localkeyresults["status"] = "Invalid";
+                        $results = array();
+                    }
+                    if ($results["validdirectory"] != dirname(__FILE__)) {
+                        $localkeyvalid = false;
+                        $localkeyresults["status"] = "Invalid";
+                        $results = array();
+                    }
+                }
+            }
+        }
+    }
+    if (!$localkeyvalid) {
+        $postfields["licensekey"] = $licensekey;
+        $postfields["domain"] = $_SERVER["SERVER_NAME"];
+        $postfields["ip"] = $usersip;
+        $postfields["dir"] = dirname(__FILE__);
+        if ($check_token) {
+            $postfields["check_token"] = $check_token;
+        }
+        if (function_exists("curl_exec")) {
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $whmcsurl . "modules/servers/licensing/verify.php");
+            curl_setopt($ch, CURLOPT_POST, 1);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $postfields);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            $data = curl_exec($ch);
+            curl_close($ch);
+        } else {
+            $fp = fsockopen($whmcsurl, 80, $errno, $errstr, 5);
+            if ($fp) {
+                $querystring = "";
+                foreach ($postfields as $k => $v) {
+                    $querystring .= (string) $k . "=" . urlencode($v) . "&";
+                }
+                $header = "POST " . $whmcsurl . "modules/servers/licensing/verify.php HTTP/1.0\r\n";
+                $header .= "Host: " . $whmcsurl . "\r\n";
+                $header .= "Content-type: application/x-www-form-urlencoded\r\n";
+                $header .= "Content-length: " . @strlen($querystring) . "\r\n";
+                $header .= "Connection: close\r\n\r\n";
+                $header .= $querystring;
+                $data = "";
+                @stream_set_timeout($fp, 20);
+                @fputs($fp, $header);
+                $status = @socket_get_status($fp);
+                while (!feof($fp) && $status) {
+                    $data .= @fgets($fp, 1024);
+                    $status = @socket_get_status($fp);
+                }
+                @fclose($fp);
+            }
+        }
+        if (!$data) {
+            $localexpiry = date("Ymd", mktime(0, 0, 0, date("m"), date("d") - ($localkeydays + $allowcheckfaildays), date("Y")));
+            if ($localexpiry < $originalcheckdate) {
+                $results = $localkeyresults;
+            } else {
+                $results["status"] = "Invalid";
+                $results["description"] = "Remote Check Failed";
+                return $results;
+            }
+        }
+        preg_match_all("/<(.*?)>([^<]+)<\\/\\1>/i", $data, $matches);
+        $results = array();
+        foreach ($matches[1] as $k => $v) {
+            $results[$v] = $matches[2][$k];
+        }
+        if ($results["md5hash"] && $results["md5hash"] != md5($licensing_secret_key . $check_token)) {
+            $results["status"] = "Invalid";
+            $results["description"] = "MD5 Checksum Verification Failed";
+            return $results;
+        }
+        if ($results["status"] == "Active") {
+            $results["checkdate"] = $checkdate;
+            $data_encoded = serialize($results);
+            $data_encoded = base64_encode($data_encoded);
+            $data_encoded = md5($checkdate . $licensing_secret_key) . $data_encoded;
+            $data_encoded = strrev($data_encoded);
+            $data_encoded = $data_encoded . md5($data_encoded . $licensing_secret_key);
+            $data_encoded = wordwrap($data_encoded, 80, "\n", true);
+            $results["localkey"] = $data_encoded;
+        }
+        $results["remotecheck"] = true;
+    }
+    unset($postfields);
+    unset($data);
+    unset($matches);
+    unset($whmcsurl);
+    unset($licensing_secret_key);
+    unset($checkdate);
+    unset($usersip);
+    unset($localkeydays);
+    unset($allowcheckfaildays);
+    unset($md5hash);
+    return $results;
+}
+
+?>
